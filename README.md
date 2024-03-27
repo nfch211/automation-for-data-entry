@@ -30,7 +30,7 @@ Part C. Limitations
 
 The quantity of pdf could range from 100 to 2000.
 The processing time could range from 30 mins to 4 hours.
-issues were that, 
+Issues were that, 
 
 texts converted from pdfs were not 100% accurate.
 
