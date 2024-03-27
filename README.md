@@ -13,7 +13,7 @@ programming language, in my case, i was using python.
 
 Part A. Extracting information from image files
 
-The algorithm of how it works is that converted the pdf into docx,
+The algorithm of how it works is that I converted the pdf into docx,
 named these files as same as the pdf. Then, i extracted all the information as mentioned from the docx
 saved these information to an excel file by a python script, 
 with its' file names i could track back and link these information to the pdfs.
