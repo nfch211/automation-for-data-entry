@@ -8,7 +8,7 @@ and company addresses will be filled in.
 
 At the beginning, i asked ChatGPT for python script to 
 read the pdf, and extract data to excel worksheet. 
-It could be really done without understanding any foundamentals of 
+It could be really done without understanding any fundamentals of 
 programming language, in my case, i was using python.
 
 Part A. Extracting information from image files
@@ -22,8 +22,8 @@ all I need to do was simply to copy and paste.
 
 Part B. Paste the information as according to my specifications to the excel file
 
-I asked ChatGPT to make me another ptyhon script to automate the pasting process,
-it was doned by simply providing the column names and row numbers,
+I asked ChatGPT to make me another python script to automate the pasting process,
+it was done by simply providing the column names and row numbers,
 and ran the python script and then it was done.
 
 Part C. Limitations
@@ -34,7 +34,7 @@ Issues were that,
 
 texts converted from pdfs were not 100% accurate.
 
-texts in lines of the docxs were not structured or formated like the image itself.
+texts in lines of the docxs were not structured or formatted like the image itself.
 
 since it just extracted text, it failed to verify whether it is a valid business registration certificate,
 for an example, a Hong Kong Business Registration Certificate.
