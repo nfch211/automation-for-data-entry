@@ -14,8 +14,8 @@ programming language, in my case, i was using python.
 The algorithm of how it works is that i converted the pdf into docx,
 and named these files as same as the pdf. Then, i 
 extracted all the information as mentioned from the docx and saved these information to 
-an excel file by a python script, * together with its' file names which is the key
-to track back and link these information to the pdfs.
+an excel file by a python script, 
+* with its' file names i could track back and link these information to the pdfs.
 
 Finally, whenever i needed to input these information as requested,
 all I need to do was simply to copy and paste.
