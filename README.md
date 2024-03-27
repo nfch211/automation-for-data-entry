@@ -26,12 +26,18 @@ I asked ChatGPT to make me another ptyhon script to automate the pasting process
 it was doned by simply providing the column names and row numbers,
 and ran the python script and then it was done.
 
-Part C. Issue not being solved
+Part C. Limitations
 
 The quantity of pdf could range from 100 to 2000.
 The processing time could range from 30 mins to 4 hours.
-One big issue was that, the texts converted from pdfs were not 100% accurate,
-it did take time for manual handling.
+issues were that, 
+
+texts converted from pdfs were not 100% accurate.
+
+texts in lines of the docxs were not structured or formated like the image itself.
+
+since it just extracted text, it failed to verify whether it is a valid business registration certificate,
+for an example, a Hong Kong Business Registration Certificate.
 
 
 
