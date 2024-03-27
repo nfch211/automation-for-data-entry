@@ -20,7 +20,7 @@ with its' file names i could track back and link these information to the pdfs.
 Finally, whenever i needed to input these information as requested,
 all I need to do was simply to copy and paste.
 
-Part B. Paste the information as according to my specifications to excel file
+Part B. Paste the information as according to my specifications to the excel file
 
 I asked ChatGPT to make me another ptyhon script to automate the pasting process,
 it was doned by simply providing the column names and row numbers,
