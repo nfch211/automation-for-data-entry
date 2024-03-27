@@ -11,12 +11,10 @@ read the pdf, and extract data to excel worksheet.
 It could be really done without understanding any foundamentals of 
 programming language, in my case, i was using python.
 
-The algorithm of how it works is that 
-*converted the pdf into docx,
-*named these files as same as the pdf. Then, i 
-*extracted all the information as mentioned from the docx
-*saved these information to an excel file by a python script
-* with its' file names i could track back and link these information to the pdfs.
+The algorithm of how it works is that converted the pdf into docx,
+named these files as same as the pdf. Then, i extracted all the information as mentioned from the docx
+saved these information to an excel file by a python script, 
+with its' file names i could track back and link these information to the pdfs.
 
 Finally, whenever i needed to input these information as requested,
 all I need to do was simply to copy and paste.
