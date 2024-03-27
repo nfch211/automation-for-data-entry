@@ -30,7 +30,7 @@ Part C. Issue not being solved
 
 The quantity of pdf could range from 100 to 2000.
 The processing time could range from 30 mins to 4 hours.
-One big issue was that, the texts converted from pdf are not 100% accurate,
+One big issue was that, the texts converted from pdfs were not 100% accurate,
 it did take time for manual handling.
 
 
