@@ -1,0 +1,52 @@
+import os
+import fitz  # PyMuPDF
+from PIL import Image, ImageEnhance
+import tkinter as tk
+from tkinter import filedialog
+import PyPDF2
+
+def repair_pdf(input_pdf_path):
+    try:
+        with open(input_pdf_path, "rb") as pdf_file:
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            pdf_writer = PyPDF2.PdfWriter()
+            
+            for page in pdf_reader.pages:
+                pdf_writer.add_page(page)
+            
+            with open(input_pdf_path, "wb") as output_pdf:
+                pdf_writer.write(output_pdf)
+                
+            print(f"Repaired PDF: {input_pdf_path}")
+    except Exception as e:
+        print(f"Error repairing PDF: {e}")
+
+def enhance_image_quality(input_image_path, enhancement_factor=1.5):
+    try:
+        image = Image.open(input_image_path)
+        enhancer = ImageEnhance.Sharpness(image)
+        enhanced_image = enhancer.enhance(enhancement_factor)
+        enhanced_image.save(input_image_path)
+        print(f"Enhanced image: {input_image_path}")
+    except Exception as e:
+        print(f"Error enhancing image: {e}")
+
+def process_folder(folder_path):
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".pdf"):
+            input_pdf_path = os.path.join(folder_path, filename)
+            repair_pdf(input_pdf_path)
+        elif filename.endswith((".jpg", ".jpeg", ".png")):
+            input_image_path = os.path.join(folder_path, filename)
+            enhance_image_quality(input_image_path)
+
+def select_folder():
+    root = tk.Tk()
+    root.withdraw()
+    folder_path = filedialog.askdirectory(title="Select Folder")
+    return folder_path
+
+if __name__ == "__main__":
+    input_folder = select_folder()
+    if input_folder:
+        process_folder(input_folder)

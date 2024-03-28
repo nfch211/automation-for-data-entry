@@ -1,0 +1,206 @@
+import os
+import re
+import logging
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import pytesseract
+from PIL import Image
+from pdf2image import convert_from_path
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+from pathlib import Path
+from openpyxl import load_workbook
+
+# Set up the Tkinter window
+window = tk.Tk()
+window.title("PDF-to-Image Extractor")
+
+# Initialize counters
+total_files = 0
+skipped_files = 0
+processed_files = 0
+remaining_files = 0
+
+def select_input_folder():
+    input_folder = filedialog.askdirectory(title="Select Input Folder")
+    if input_folder:
+        entry_input_folder.delete(0, tk.END)
+        entry_input_folder.insert(tk.END, input_folder)
+
+def select_output_folder():
+    output_folder = filedialog.askdirectory(title="Select Output Folder")
+    if output_folder:
+        entry_output_folder.delete(0, tk.END)
+        entry_output_folder.insert(tk.END, output_folder)
+
+def generate_images_from_pdf(file_path, file_ext):
+    if file_ext.lower() in [".pdf", ".jpg", ".png", ".bmp", ".gif", ".tiff"]:
+        if file_ext.lower() == ".pdf":
+            # Convert PDF pages to images
+            return convert_from_path(file_path)
+        else:
+            # Load an image file directly
+            return [Image.open(file_path)]
+    else:
+        return None
+
+def extract_text_from_image(pages, file, output_folder):
+    date_regex = re.compile(r'\b(0[1-9]|1[0-9]|2[0-9]|3[01])/(0[1-9]|1[012])/([12][0-9]{3})\b')
+    number_code_regex = re.compile(r'\b\d{8}-\d{3}\b')
+    for page in pages:
+        ocr_result = pytesseract.image_to_data(page, lang="chi_tra", output_type=pytesseract.Output.DICT)
+        dates_and_locations = []
+
+        for i in range(len(ocr_result['text'])):
+            if ocr_result['conf'][i] > 60:
+                if date_regex.match(ocr_result['text'][i]) and i + 1 < len(ocr_result['text']) and date_regex.match(ocr_result['text'][i+1]):
+                    x1, y1, w1, h1 = ocr_result['left'][i], ocr_result['top'][i], ocr_result['width'][i], ocr_result['height'][i]
+                    x2, y2, w2, h2 = ocr_result['left'][i+1], ocr_result['top'][i+1], ocr_result['width'][i+1], ocr_result['height'][i+1]
+
+                    if x1 > x2:
+                        x1, y1, w1, h1, x2, y2, w2, h2 = x2, y2, w2, h2, x1, y1, w1, h1
+
+                    date = datetime.strptime(ocr_result['text'][i+1], "%d/%m/%Y")
+                    dates_and_locations.append((date, x2, y2, w2, h2))
+
+        if dates_and_locations:
+            dates_and_locations.sort()
+            last_date, x, y, w, h = dates_and_locations[-1]
+            y = max(0, y - 3*h)
+            h *= 4
+
+            last_date_image = page.crop((x, y, x+w, y+h))
+            output_image_path = os.path.join(output_folder, f"{Path(file).stem}_{last_date.strftime('%Y-%m-%d')}.png")
+            last_date_image.save(output_image_path)
+
+            right_text = page.crop((x+w, y, page.width, y+h))
+            right_text_data = pytesseract.image_to_data(right_text, output_type=pytesseract.Output.DICT)
+
+            for i in range(len(right_text_data['text'])):
+                if number_code_regex.match(right_text_data['text'][i]):
+                    x_right, y_right, w_right, h_right = right_text_data['left'][i], right_text_data['top'][i], right_text_data['width'][i], right_text_data['height'][i]
+                    y_right = max(0, y_right - 3*h_right)
+                    h_right *= 4
+
+                    right_image = right_text.crop((x_right, y_right, x_right+w_right, y_right+h_right))
+                    number_code = right_text_data['text'][i]
+                    number_code = number_code.split("-")[0]+"-"+number_code.split("-")[1] # To only get the BR number
+                    output_right_image_path = os.path.join(output_folder, f"{Path(file).stem}_{number_code}.png")
+                    right_image.save(output_right_image_path)
+                    return (number_code, last_date.strftime('%Y-%m-%d'))
+            return (None, last_date.strftime('%Y-%m-%d'))
+
+def extract_images_with_text_from_pdf():
+    global total_files
+    global skipped_files
+    global processed_files
+    global remaining_files
+
+    total_files = 0
+    skipped_files = 0
+    processed_files = 0
+    remaining_files = 0
+
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Users\hofong\Desktop\python\Tesseract\tesseract.exe"
+    poppler_path = r"C:\Users\hofong\Desktop\python\poppler-23.07.0\Library\bin"
+    os.environ["PATH"] += os.pathsep + poppler_path
+
+    # Get the input and output folders
+    input_folder = entry_input_folder.get()
+    output_folder = entry_output_folder.get()
+
+    # Create the output folder if it does not exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    # Initialize the workbook and worksheets
+    wb = Workbook()
+    wb.remove(wb['Sheet']) # Remove the default sheet created
+    ws1 = wb.create_sheet("Processed Files", 0)
+    ws2 = wb.create_sheet("Skipped Files", 1)
+    ws1.append(["BR Number", "Expiry Date", "File Link"])
+    ws2.append(["File Name", "Error", "Reason", "File Link"])
+
+    # Loop through files in the input folder
+    for root, dirs, files in os.walk(input_folder):
+        total_files = len(files)
+        remaining_files = total_files
+        print(f"Total files to process: {total_files}")
+
+        for file in files:
+            remaining_files -= 1
+            file_path = os.path.join(root, file)
+            file_name, file_ext = os.path.splitext(file)
+
+            try:
+                pages = generate_images_from_pdf(file_path, file_ext)
+                if pages is not None:
+                    result = extract_text_from_image(pages, file, output_folder)
+                    if result is not None:
+                        br_number, expiry_date = result
+                        ws1.append([br_number, expiry_date, file_path])
+                        # add hyperlink to the file link cell
+                        cell = ws1.cell(row=ws1.max_row, column=3)
+                        cell.hyperlink = file_path
+                        cell.style = "Hyperlink"
+                        processed_files += 1
+                    else:
+                        ws2.append([file, "OCR Error", "No text found", file_path])
+                        # add hyperlink to the file link cell
+                        cell = ws2.cell(row=ws2.max_row, column=4)
+                        cell.hyperlink = file_path
+                        cell.style = "Hyperlink"
+                        skipped_files += 1
+                else:
+                    ws2.append([file, "Invalid File Type", "File type not supported", file_path])
+                    # add hyperlink to the file link cell
+                    cell = ws2.cell(row=ws2.max_row, column=4)
+                    cell.hyperlink = file_path
+                    cell.style = "Hyperlink"
+                    skipped_files += 1
+            except Exception as e:
+                logging.exception(e)
+                ws2.append([file, "Error during processing", str(e), file_path])
+                # add hyperlink to the file link cell
+                cell = ws2.cell(row=ws2.max_row, column=4)
+                cell.hyperlink = file_path
+                cell.style = "Hyperlink"
+                skipped_files += 1
+
+            print(f"Remaining files: {remaining_files}")
+            print(f"Processed files: {processed_files}")
+            print(f"Skipped files: {skipped_files}")
+
+    # Save the workbook
+    wb.save(os.path.join(output_folder, "report.xlsx"))
+
+    # Completion message
+    messagebox.showinfo("PDF-to-Image Extractor", f"Extraction completed!\n\nTotal Files: {total_files}\nProcessed Files: {processed_files}\nSkipped Files: {skipped_files}")
+
+# Set up the input folder UI
+lbl_input_folder = tk.Label(window, text="Input Folder:")
+lbl_input_folder.grid(row=0, column=0, padx=(20, 10), pady=(20, 0))
+
+entry_input_folder = tk.Entry(window, width=50)
+entry_input_folder.grid(row=0, column=1, pady=(20, 0))
+
+btn_input_folder = tk.Button(window, text="Browse", command=select_input_folder)
+btn_input_folder.grid(row=0, column=2, padx=(10, 20), pady=(20, 0))
+
+# Set up the output folder UI
+lbl_output_folder = tk.Label(window, text="Output Folder:")
+lbl_output_folder.grid(row=1, column=0, padx=(20, 10))
+
+entry_output_folder = tk.Entry(window, width=50)
+entry_output_folder.grid(row=1, column=1)
+
+btn_output_folder = tk.Button(window, text="Browse", command=select_output_folder)
+btn_output_folder.grid(row=1, column=2, padx=(10, 20))
+
+# Set up the conversion button UI
+btn_convert = tk.Button(window, text="Convert", command=extract_images_with_text_from_pdf)
+btn_convert.grid(row=2, column=0, columnspan=3, pady=(20, 20))
+
+# Run the Tkinter loop
+window.mainloop()

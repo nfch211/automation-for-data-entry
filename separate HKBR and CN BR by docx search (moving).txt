@@ -1,0 +1,148 @@
+import os
+import re
+import shutil
+import openpyxl
+from docx import Document
+from tkinter import Tk, filedialog
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, NamedStyle
+
+# Define the BR number patterns
+hk_br_pattern = r'\d{8}\s*-\s*\d{3}\s*-\s*\d{2}\s*-\s*\d{2}\s*-\s*[A-Za-z0-9]+'
+cn_br_pattern = r'[34]\d{14}|9(?:[A-Z\d]\s?){17}'
+
+# Create a hyperlink style
+hyperlink_style = NamedStyle(name="hyperlink_style")
+hyperlink_style.font = Font(color="0563C1", underline="single")
+
+def main():
+    root = Tk()
+    root.withdraw()
+    image_folder = filedialog.askdirectory(title="Select Image Folder")
+    docx_folder = filedialog.askdirectory(title="Select DOCX Folder")
+    image_files = [file for file in os.listdir(image_folder) if file.lower().endswith(('.jpg', '.jpeg', '.bmp', '.pdf', '.png'))]
+    copied_files = set()
+    workbook = openpyxl.Workbook()
+    worksheet_movements = workbook.active
+    worksheet_movements.title = "File Movements"
+    worksheet_movements.append(["Image Filename", "Original Path", "New Path", "Reason"])
+
+    for col_idx in range(1, 5):
+        col_letter = get_column_letter(col_idx)
+        worksheet_movements.column_dimensions[col_letter].width = 30
+
+    for filename in os.listdir(docx_folder):
+        if filename.endswith('.docx'):
+            process_docx_file(filename, docx_folder, image_folder, image_files, copied_files, worksheet_movements)
+
+    excel_filename = "file_movements_and_missing.xlsx"
+    workbook.save(excel_filename)
+
+    # Move missing image files based on Excel information
+    move_missing_images(image_folder, worksheet_movements)
+
+    print("Processing complete.")
+
+def process_docx_file(filename, docx_folder, image_folder, image_files, copied_files, worksheet_movements):
+    docx_path = os.path.join(docx_folder, filename)
+    docx_found = False
+    doc = Document(docx_path)
+    hk_br_numbers = []
+    cn_br_numbers = []
+    for para in doc.paragraphs:
+        text = para.text
+        hk_br_numbers.extend(re.findall(hk_br_pattern, text))
+        cn_br_numbers.extend(re.findall(cn_br_pattern, text))
+
+    for img_file in image_files:
+        img_filename = os.path.basename(img_file)
+        img_source = os.path.join(image_folder, img_file)
+        if img_filename.startswith(os.path.splitext(filename)[0]) and img_filename not in copied_files:
+            if not hk_br_numbers and not cn_br_numbers:  # No HK BR or CN BR numbers found
+                docx_found |= move_image_file(img_source, img_filename, "", "O BR", copied_files, docx_found, worksheet_movements)
+            else:
+                for hk_br_number in hk_br_numbers:
+                    docx_found |= move_image_file(img_source, img_filename, hk_br_number, "HK BR", copied_files, docx_found, worksheet_movements)
+                for cn_br_number in cn_br_numbers:
+                    docx_found |= move_image_file(img_source, img_filename, cn_br_number, "CN BR", copied_files, docx_found, worksheet_movements)
+
+    if not docx_found:
+        missing_image_path = os.path.join(image_folder, os.path.splitext(filename)[0])
+        missing_image_full_path = next((f"{missing_image_path}{ext}" for ext in ['.jpg', '.png', '.pdf'] if os.path.exists(f"{missing_image_path}{ext}")), None)
+        reason = determine_reason(hk_br_numbers, cn_br_numbers, image_files, missing_image_full_path)
+        worksheet_movements.append([
+            os.path.splitext(filename)[0],
+            f'=HYPERLINK("{docx_path}", "{docx_path}")',
+            f'=HYPERLINK("{missing_image_full_path}", "{missing_image_full_path}")' if missing_image_full_path else 'Image not found',
+            reason
+        ])
+        row_index = worksheet_movements.max_row
+        for col_idx in range(1, 5):
+            cell = worksheet_movements.cell(row=row_index, column=col_idx)
+            if 'HYPERLINK' in str(cell.value):
+                cell.style = hyperlink_style
+
+def determine_reason(hk_br_numbers, cn_br_numbers, image_files, missing_image_full_path):
+    if not hk_br_numbers and not cn_br_numbers:
+        return "No BR numbers found"
+    elif not image_files:
+        return "No image files available for copying"
+    elif missing_image_full_path:
+        return "Image not found"
+    else:
+        return "Other reason"
+
+def move_image_file(img_source, img_filename, br_number, br_folder, copied_files, docx_found, worksheet_movements):
+    img_dest = os.path.join(br_folder, img_filename)
+    if not os.path.exists(img_dest):
+        if os.path.exists(img_source):
+            try:
+                shutil.move(img_source, img_dest)
+                copied_files.add(img_filename)
+                print(f"Moved '{img_filename}' to '{br_folder}' for BR: {br_number}")
+                return True
+            except Exception as e:
+                print(f"Failed to move '{img_filename}' to '{br_folder}' for BR: {br_number}'")
+                print(f"Error: {e}")
+                worksheet_movements.append([
+                    img_filename,
+                    f'Error moving for BR: {br_number}',
+                    f'Error moving for BR: {br_number}',
+                    f'Error: {e}'
+                ])
+                return docx_found
+        else:
+            print(f"Source image '{img_filename}' not found for BR: {br_number}")
+            worksheet_movements.append([
+                img_filename,
+                f'Image not found for BR: {br_number}',
+                f'Image not found for BR: {br_number}',
+                "Source image not found"
+            ])
+            return docx_found
+    return docx_found
+
+def move_missing_images(image_folder, worksheet_movements):
+    for row in worksheet_movements.iter_rows(min_row=2, max_row=worksheet_movements.max_row):
+        image_filename = row[0].value
+        original_cell = row[1]
+        new_cell = row[2]
+        reason = row[3].value
+
+        if reason == "Image not found":
+            original_path = original_cell.hyperlink.target if original_cell.hyperlink else None
+            new_path = new_cell.hyperlink.target if new_cell.hyperlink else None
+
+            if original_path and new_path:
+                try:
+                    shutil.move(original_path, new_path)
+                    print(f"Moved '{image_filename}' from '{original_path}' to '{new_path}'")
+                except Exception as e:
+                    print(f"Failed to move '{image_filename}' from '{original_path}' to '{new_path}'")
+                    print(f"Error: {e}")
+            else:
+                print(f"Hyperlinks not found for '{image_filename}'. Skipping.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,107 @@
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from PyPDF2 import PdfReader, PdfWriter
+from shutil import copyfile
+import sys
+import tempfile
+
+import tempfile
+
+def cancel_operation():
+    cancel_flag_path = tempfile.gettempdir() + "/cancel_flag.txt"
+    with open(cancel_flag_path, 'w') as flag_file:
+        flag_file.write('Canceled')
+    
+    window.quit() # Close the tkinter window
+
+def save_selected_path(path):
+    """Save the selected path to selected_path.txt located in the script's directory."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the script
+    selected_path_file = os.path.join(script_dir, "selected_path.txt")  # Construct path to selected_path.txt
+    
+    with open(selected_path_file, 'w') as file:
+        file.write(path)
+
+def select_pdf_folder():
+    pdf_folder_path = filedialog.askdirectory(title="Select Folder")
+    if pdf_folder_path:
+        entry_pdf_folder.delete(0, tk.END)
+        entry_pdf_folder.insert(tk.END, pdf_folder_path)
+        save_selected_path(pdf_folder_path)  # Save the selected path
+
+def select_output_folder():
+    output_folder_path = filedialog.askdirectory(title="Select Output Folder")
+    if output_folder_path:
+        entry_output.delete(0, tk.END)
+        entry_output.insert(tk.END, output_folder_path)
+
+
+def extract_last_page():
+    pdf_folder_path = entry_pdf_folder.get()
+    output_folder_path = entry_output.get()
+
+    if not pdf_folder_path or not output_folder_path:
+        messagebox.showerror("Error", "Please select the folder and output folder.")
+        return
+
+    extracted_info = []
+
+    for filename in os.listdir(pdf_folder_path):
+        file_path = os.path.join(pdf_folder_path, filename)
+        if os.path.isfile(file_path):
+            output_file_path = os.path.join(output_folder_path, filename)
+            try:
+                # Check if the file is a PDF
+                if filename.endswith(".pdf"):
+                    pdf_reader = PdfReader(file_path)
+                    num_pages = len(pdf_reader.pages)
+                    last_page = pdf_reader.pages[num_pages - 1]
+                    output_pdf_writer = PdfWriter()
+                    output_pdf_writer.add_page(last_page)
+                    with open(output_file_path, "wb") as output_pdf_file:
+                        output_pdf_writer.write(output_pdf_file)
+                        extracted_info.append(f"Extracted last page from {filename}")
+                # Check if the file is an image (PNG or JPG)
+                elif filename.endswith(".png") or filename.endswith(".jpg"):
+                    copyfile(file_path, output_file_path)
+                    extracted_info.append(f"Copied image {filename}")
+            except Exception as e:
+                extracted_info.append(f"Failed to process file '{file_path}': {str(e)}")
+
+    info_str = "\n".join(extracted_info)
+    messagebox.showinfo("Extraction Complete", f"Last pages and images extracted successfully.\n\n{info_str}")
+    window.destroy()  # This line will close the Tkinter window
+
+
+
+# Create the Tkinter window
+window = tk.Tk()
+window.title("Last Page and Image Extractor")
+
+label_pdf_folder = tk.Label(window, text="Select Folder:")
+label_pdf_folder.pack()
+
+entry_pdf_folder = tk.Entry(window, width=50)
+entry_pdf_folder.pack()
+
+button_select_pdf_folder = tk.Button(window, text="Select", command=select_pdf_folder)
+button_select_pdf_folder.pack()
+
+label_output = tk.Label(window, text="Select Output Folder:")
+label_output.pack()
+
+entry_output = tk.Entry(window, width=50)
+entry_output.pack()
+
+button_select_output = tk.Button(window, text="Select", command=select_output_folder)
+button_select_output.pack()
+
+button_extract = tk.Button(window, text="Extract Last Pages and Copy Images", command=extract_last_page)
+button_extract.pack()
+
+# Modify the button that triggers the cancel operation
+button_cancel = tk.Button(window, text="Cancel", command=cancel_operation)
+button_cancel.pack()
+
+window.mainloop()

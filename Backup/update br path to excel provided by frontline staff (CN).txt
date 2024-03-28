@@ -1,0 +1,38 @@
+import openpyxl
+from tkinter import filedialog, Tk
+
+def load_br_link_map():
+    source_excel_path = "CN BR Data.xlsx"
+    wb = openpyxl.load_workbook(source_excel_path)
+    ws = wb.active
+
+    # Since values_only=True, each row is just a tuple of cell values
+    return {row[1]: row[3] for row in ws.iter_rows(min_row=2, values_only=True)}
+
+def update_excel_hyperlinks(target_excel_path, br_link_map):
+    wb = openpyxl.load_workbook(target_excel_path)
+    ws = wb.active
+
+    for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        br_number = row[4]  # Assuming "BR Number" is in the fifth column (index 4 since it's 0-based)
+        if br_number in br_link_map:
+            cell = ws.cell(row=idx, column=5)
+            cell.hyperlink = br_link_map[br_number]
+            cell.style = "Hyperlink"  # Optional: to give it a hyperlink style
+
+    wb.save(target_excel_path)
+
+if __name__ == "__main__":
+    br_link_map = load_br_link_map()
+
+    # Create a basic tkinter window but don't show it
+    root = Tk()
+    root.withdraw()
+
+    target_excel_path = filedialog.askopenfilename(title="Select the Excel file to update", filetypes=[("Excel files", "*.xlsx;*.xlsm")])
+    if not target_excel_path:
+        print("No file selected. Exiting...")
+        exit()
+
+    update_excel_hyperlinks(target_excel_path, br_link_map)
+    print("Hyperlinks updated successfully.")

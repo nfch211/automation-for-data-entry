@@ -1,0 +1,425 @@
+import os
+import tkinter as tk
+from tkinter import filedialog
+from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.core.credentials import AzureKeyCredential
+from docx import Document
+import openpyxl
+import re
+from fuzzywuzzy import fuzz  # pip install fuzzywuzzy
+from google.cloud import translate_v2 as translate  # Import the translate library
+import logging
+import zipfile
+import zlib
+from openpyxl.styles import Font  # Add this import at the beginning of your script
+from openpyxl.styles import PatternFill
+light_grey_fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+import os
+
+red_font = Font(color="FF0000")  # Define the red font color
+
+# Path to your JSON credentials
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'C:/Users/hofong/Desktop/python/Google Translation API/boxwood-axon-403207-a2d2abe9a96d.json'
+
+# Create a client for the Google Cloud Translation API
+translate_client = translate.Client()
+
+# Set your endpoint and key variables with the values from the Azure portal
+endpoint = "https://hktdcbr.cognitiveservices.azure.com/"
+key = "28ff496d762e4b5e8a6beecaabd61392"
+
+
+def get_cleaned_text(doc):
+    text = " ".join([p.text for p in doc.paragraphs if p.text.strip()])
+    return text  # Keeping the text as-is without stripping non-alphabetic characters
+
+def update_status(status):
+    label_status.config(text=status)
+    window.update_idletasks()
+
+def select_input_folder():
+    input_folder = filedialog.askdirectory(title="Select Input Folder")
+    if input_folder:
+        entry_input_folder.delete(0, tk.END)
+        entry_input_folder.insert(tk.END, input_folder)
+
+def select_output_folder():
+    output_folder = filedialog.askdirectory(title="Select Output Folder")
+    if output_folder:
+        entry_output_folder.delete(0, tk.END)
+        entry_output_folder.insert(tk.END, output_folder)
+
+def all_words_present(word_list, text):
+    return all(word in text for word in word_list)
+
+# Add a function to find the correct file extension
+def find_file_with_extension(base_path, extensions):
+    for ext in extensions:
+        full_path = f"{base_path}.{ext}"
+        if os.path.exists(full_path):
+            return full_path
+    return None
+
+# Function to list all files in a directory and its subdirectories
+def list_all_files(directory):
+    all_files = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            all_files.append(os.path.join(root, file))
+    return all_files
+
+def add_hyperlink(ws, cell_ref, path, display_text):
+    """
+    Adds a hyperlink to a cell in the Excel sheet.
+    """
+    if os.path.exists(path):
+        # Hyperlink formula for local file
+        link = f"file:///{path}"
+        ws[cell_ref].hyperlink = link
+        ws[cell_ref].value = display_text
+        ws[cell_ref].style = "Hyperlink"
+    else:
+        # If the file doesn't exist, just display the path
+        ws[cell_ref].value = path
+
+
+def extract_data_from_word(doc_path):
+    try:
+        doc = Document(doc_path)
+    except (zipfile.BadZipFile, zlib.error) as e:
+        print(f"Error opening document {doc_path}: {e}")
+        return None, None, None, None, None  # returning None for all values to indicate an error
+
+
+
+    doc = Document(doc_path)
+    company_name = "No Match Found"
+    expiry_date = "No Match Found"
+    br_number = "No Match Found"
+    dates_found = []
+    company_address = ""  # Default is blank
+
+
+    lines = [p.text.strip() for p in doc.paragraphs]
+    joined_line = ' '.join(para.text for para in doc.paragraphs)
+    
+    #create a removal list
+    remove_list = []
+
+    paragraphs = list(doc.paragraphs)
+    
+    #looking for the numbers that match br_patterns but is actually not br numbers, and append these numbers in to a removal list
+    for i in range(len(paragraphs)):
+        if "编号" and "编 号" in paragraphs[i].text:
+            # Append the paragraph text containing "编号"
+            remove_list.append(paragraphs[i].text)
+            # Check if the next paragraph exists before appending
+            if i + 1 < len(paragraphs):
+                # Find all digits in the next paragraph and join them
+                digits = ''.join(re.findall(r'\d+', paragraphs[i + 1].text))
+                remove_list.append(digits)
+            
+    #remove items in removal list from text string
+    for remove_text in remove_list:
+        joined_line = joined_line.replace(remove_text, "")   
+
+
+    lines = [p.text.strip() for p in doc.paragraphs]
+
+
+    # Existing logic for HKBR patterns
+    HKBR = list(re.finditer(r'(\d{8})\s*-\s*(\d{3})\s*-\s*(\d{2})\s*-\s*(\d{2})\s*-\s*([0-9A-Z])', joined_line, re.MULTILINE))
+
+    
+    if HKBR:  
+
+        for match in HKBR:
+            br_number = match.group(0).replace(" ","")
+
+            # Extract company address using the specified keywords
+            address_pattern = re.compile(r'地址\s*(Address)?\s*(.+?)\s*業務性質', re.DOTALL)
+            address_match = address_pattern.search(joined_line)
+            if address_match and address_match.group(2):
+                company_address = address_match.group(2).strip()
+                company_address = company_address.replace("Address", "").strip()
+            else:
+                address_pattern = re.compile(r'(?:Branch Name|Name of Business|法團所用名稱|Corporation)\s*(.*?)\s*(?:Address)', re.DOTALL)
+
+
+                company_address = "No Match Found"
+
+
+            #### Extract company name using the specified keywords ###
+            company_name_pattern = re.compile(r'(?:Name of Business Corporation|Name of Business|法團所用名稱|Corporation)\s*(.*?)\s*Branch Name', re.DOTALL)
+
+            joined_line = joined_line.replace("/", "")
+            find_company_name = company_name_pattern.finditer(joined_line)
+
+
+
+            # Use finditer to find all matches of the pattern
+            find_company_name = company_name_pattern.finditer(joined_line)
+
+            # Initialize a list to hold all found company names
+            company_names = []
+
+            # Iterate over each match
+            for match in find_company_name:
+                name_text = match.group(1).strip()
+                # Extract the matched group and add it to the list
+                company_names = [word for word in name_text.split() if word.isupper()]
+                
+                company_name = ' '.join(company_names)
+
+            if not company_name:
+                company_names = [line for line in lines if "LIMITED" in line]
+                company_name_b4 = ' '.join(company_names)
+
+                company_name_b4 = company_name_b4.split()
+                
+                company_name = ' '.join(name for name in company_name_b4 if name.isupper())
+
+
+
+            check_company_name = company_name.split()
+            company_name_extraction_lines = []
+            if len(check_company_name ) < 3:
+                for i in range(len(lines)):
+                    if company_name in lines[i]:
+                        company_name_extraction_lines.insert(0, lines[i])
+                        company_name_extraction_lines.insert(0, lines[i-1])
+                        company_name_extraction_lines.insert(0, lines[i-2])
+                        company_name_extraction_lines.insert(0, lines[i-3])
+
+                        company_name_extraction_lines = ' '.join(company_name_extraction_lines).split()
+
+                        company_name = ' '.join(text for text in company_name_extraction_lines if text.isupper() )
+
+
+            # Logic for extracting dates
+            for line in lines:
+                dates = re.findall(r'\d{2}/\d{2}/\d{4}', line)
+                if dates:
+                    dates_found.extend(dates)
+
+            # Logic for finding the latest date
+            future_dates = []
+            for date_str in dates_found:
+                try:
+                    date_format = datetime.strptime(date_str, '%d/%m/%Y')
+                    future_dates.append(date_format)
+                except ValueError:
+                    continue  # Skip invalid date formats
+            if future_dates:
+                expiry_date = max(future_dates).strftime('%d/%m/%Y')
+    else:
+
+
+        # Find the CN numbers
+        CNBR = list(re.finditer(r'(9(?:[A-Z\d]\s?){17}|4\d{14}|3\d{14}|1\d{14})', joined_line, re.MULTILINE))
+
+
+        if CNBR:
+
+            for match in CNBR:
+                uppercase_count = sum(1 for ul in match.group() if ul.isupper())
+                if uppercase_count >= 12:
+                    continue
+                br_number = match.group(0).replace(" ","").replace("I","1").replace("O","0").replace("S","5")
+                company_name = None  # Leave company name empty
+                expiry_date = None   # Leave expiry date empty
+
+            CNBR_matches = list(CNBR) 
+
+            if CNBR_matches:
+
+                # Now, process the found BR numbers
+                CNBR = [match.group(0).replace(" ", "").replace("I","1").replace("O","0").replace("S","5") for match in CNBR]
+
+                br_number = CNBR[0]
+        
+        else:
+    
+
+            # Your existing logic for Korean BR pattern
+            KRBR = list(re.findall(r'(\d{3}-\d{2}-\d{5})', joined_line, re.MULTILINE))  # Search in all text
+
+
+            if KRBR:
+
+
+                br_number = KRBR[0]
+
+                # New logic to extract company name based on BR number pattern
+                for line in lines:
+                    match = re.search(r'(.*?)[(](\d{3}-\d{2}-\d{5})', line)
+                    if match:
+                        company_name = match.group(1).strip()
+                        break  # Exit loop once the company name is found
+
+                if not company_name:  # If company_name is not extracted using the first pattern
+                    print("Entering the company_name extraction block...")  # Debugging statement
+                    # Join all lines to form a single text blob for pattern matching
+                    joined_text = ' '.join(lines)
+                    print(f"Joined text for company name extraction: {joined_text}")  # Debugging print statement
+                    # Check for both patterns "법인명 ( 단체명 ) :" and "법인명(단체명) :"
+                    match = re.search(r'법인명\s*\(?\s*단체명\s*\)?\s*:\s*(.+)', joined_text)
+                    if match:
+                        korean_name = match.group(1).strip()
+                        print(f"Korean name found: {korean_name}")  # Debugging print statement
+                        # Translate the Korean name to English using the Google Cloud Translation API
+                        result = translate_client.translate(korean_name, target_language='en')
+                        translated_name = result['translatedText']
+                        # Combine the Korean name and translated name
+                        company_name = f"{korean_name} ({translated_name})"
+                        print(f"Translated company name: {company_name}")  # Debugging print statement
+        
+
+    # Check if the BR number pattern is XXX-XX-XXXXX before translating
+    if re.match(r'\d{3}-\d{2}-\d{5}', br_number):
+        # Check if (Eng) is already in the doc_path to avoid multiple (Eng) in the file name
+        if '(Eng)' not in doc_path:
+            translated_doc_path = os.path.splitext(doc_path)[0] + "(Eng).docx"
+        else:
+            translated_doc_path = doc_path  # use the existing doc_path if (Eng) is already there
+        
+        # Only translate and save if translated_doc_path is different from doc_path and doesn't already exist
+        if translated_doc_path != doc_path and not os.path.exists(translated_doc_path):
+            translated_doc = Document()  # Create a new Document for the translated text
+            for para in doc.paragraphs:
+                if para.text:
+                    result = translate_client.translate(para.text, target_language='en')  # Translate the text
+                    translated_text = result['translatedText']
+                    translated_doc.add_paragraph(translated_text)  # Add translated text to the new Document
+            translated_doc.save(translated_doc_path)  # Save the translated document
+    else:
+        translated_doc_path = ""  # If BR number pattern is not matched, set translated_doc_path as empty string
+
+
+    return br_number, company_name, company_address, expiry_date, translated_doc_path  # Return translated_doc_path
+
+
+
+def analyze_general_documents(input_folder, output_folder, excel_file):
+    # List all files in the input folder, including subfolders
+    all_input_files = list_all_files(input_folder)
+
+    document_analysis_client = DocumentAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(key))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["BR Number", "Company Name", "Company Address", "Expiry Date", "Original File Name", "Original Source", "BR Page", "Text Conversion", "Text Translation in Eng"])
+
+    ws_skipped = wb.create_sheet("Skipped Files")
+    ws_skipped.append(["File Name", "Original Source", "Reason"])
+
+    for root, dirs, files in os.walk(input_folder):
+        files = sorted(files, reverse=True)
+
+        for file in files:
+            file_path = os.path.join(root, file)
+            file_ext = os.path.splitext(file)[1]
+            output_file_path = os.path.join(output_folder, os.path.splitext(file)[0] + ".docx")
+
+            if os.path.exists(output_file_path):
+                print(f"File {file} already exists in the output folder. Skipping...")
+                continue
+
+            file_size = os.path.getsize(file_path)
+            if file_size > 4 * 1024 * 1024:
+                print(f"File {file} is larger than 4MB. Skipping...")
+                ws_skipped.append([file, file_path, "File size larger than 4MB"])
+                continue
+
+            print(f"Processing {file}...")
+            if file_ext.lower() in [".pdf", ".jpg", ".png", ".jpeg"]:
+                try:
+                    with open(file_path, "rb") as f:
+                        poller = document_analysis_client.begin_analyze_document("prebuilt-document", f)
+                        result = poller.result()
+                        doc = Document()
+                        for page in result.pages:
+                            for line in page.lines:
+                                doc.add_paragraph(line.content)
+                        doc.save(output_file_path)
+                except Exception as e:
+                    print(f"Error processing {file}: {str(e)}")
+                    ws_skipped.append([file, file_path, str(e)])
+
+    for file in os.listdir(output_folder):
+        if file.startswith('~$') or not file.endswith('.docx'):
+            continue
+
+        file_path = os.path.join(output_folder, file)
+        original_file_name = os.path.splitext(file)[0]
+        
+        # Find the original file path by matching the file name
+        original_file_path = None
+        for input_file in all_input_files:
+            if original_file_name in os.path.basename(input_file):
+                original_file_path = input_file
+                break
+
+        if not original_file_path:
+            print(f"Original file path not found for {file}. Skipping...")
+            continue
+
+        br_number, company_name, company_address, expiry_date, translated_doc_path = extract_data_from_word(file_path)
+
+        if br_number is None:
+            print(f"Skipping {file_path} due to an error in data extraction.")
+            continue
+
+        row = [br_number, company_name, company_address, expiry_date, original_file_name, original_file_path, "-", file_path, translated_doc_path]
+        
+        # Check for duplicates before appending
+        if not any(row == list(r)[:len(row)] for r in ws.iter_rows(min_row=2, values_only=True)):
+            ws.append(row)
+
+            # Add hyperlinks to the paths
+            row_num = ws.max_row
+            for col_num, path in enumerate(row[5:], start=6):  # Columns F to I start from index 5
+                cell_ref = f"{get_column_letter(col_num)}{row_num}"
+                add_hyperlink(ws, cell_ref, path, path)
+
+    wb.save(excel_file)
+
+
+def convert_image_pdf_to_word():
+    update_status("Processing...")
+    input_folder = entry_input_folder.get()
+    output_folder = entry_output_folder.get()
+    excel_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "HK BR Data.xlsx")
+    analyze_general_documents(input_folder, output_folder, excel_file)
+    update_status("Done!")
+
+window = tk.Tk()
+window.title("PDF to Word Converter")
+
+label_input_folder = tk.Label(window, text="Input Folder:")
+label_input_folder.pack()
+
+entry_input_folder = tk.Entry(window, width=50)
+entry_input_folder.pack()
+
+button_select_input_folder = tk.Button(window, text="Select", command=select_input_folder)
+button_select_input_folder.pack()
+
+label_output_folder = tk.Label(window, text="Output Folder:")
+label_output_folder.pack()
+
+entry_output_folder = tk.Entry(window, width=50)
+entry_output_folder.pack()
+
+button_select_output_folder = tk.Button(window, text="Select", command=select_output_folder)
+button_select_output_folder.pack()
+
+button_convert = tk.Button(window, text="Convert", command=convert_image_pdf_to_word)
+button_convert.pack()
+
+label_status = tk.Label(window, text="")
+label_status.pack()
+
+window.mainloop()

@@ -1,0 +1,76 @@
+import os
+from tkinter import filedialog, Tk
+from openpyxl import load_workbook, styles
+from fuzzywuzzy import process
+from termcolor import colored
+from colorama import init
+
+init(autoreset=True)  # Automatically reset the terminal color after each colored print.
+
+def select_excel_file():
+    root = Tk()
+    root.withdraw()
+    file_path = filedialog.askopenfilename(title="Select the Excel file", filetypes=[("Excel Files", "*.xlsx")])
+    return file_path
+
+def select_folder():
+    root = Tk()
+    root.withdraw()
+    folder_path = filedialog.askdirectory(title="Select the folder containing the files")
+    return folder_path
+
+def find_best_match_in_folder(folder, target_filename, extensions):
+    all_files = [f for f in os.listdir(folder) if any(f.endswith(ext) for ext in extensions)]
+    best_match, score = process.extractOne(target_filename, all_files)
+    
+    if score > 90:  # Threshold set to 90%
+        return os.path.join(folder, best_match), score
+    return None, None
+
+def find_file_with_possible_extensions(folder, filename, extensions):
+    for ext in extensions:
+        exact_path = os.path.join(folder, filename + "." + ext)
+        if os.path.exists(exact_path):
+            return exact_path, None
+    
+    return find_best_match_in_folder(folder, filename, extensions)
+
+def main():
+    excel_file = select_excel_file()
+    folder = select_folder()
+
+    if not excel_file or not folder:
+        print("File or Folder not selected!")
+        return
+
+    extensions = ["pdf", "jpg", "jpeg", "png", "tif", "docx"]
+    workbook = load_workbook(excel_file)
+    worksheet = workbook.active
+
+    worksheet.cell(row=1, column=6, value="Original Source")
+    worksheet.cell(row=1, column=7, value="Similarity Score (%)")
+
+    purple_font = styles.Font(color="800080")
+
+    for row_num, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), 2):
+        filename = row[2]
+        file_path, similarity_score = find_file_with_possible_extensions(folder, filename, extensions)
+        
+        if file_path:
+            displayed_filename = os.path.basename(file_path)
+            hyperlink_formula = f'=HYPERLINK("{file_path}", "{displayed_filename}")'
+            if similarity_score:
+                print(colored(f"Fuzzy Match ({similarity_score}%): File '{filename}' matched with '{file_path}'", 'magenta'))
+                worksheet.cell(row=row_num, column=6).value = hyperlink_formula
+                worksheet.cell(row=row_num, column=6).font = purple_font
+                worksheet.cell(row=row_num, column=7, value=similarity_score).font = purple_font
+            else:
+                worksheet.cell(row=row_num, column=6).value = hyperlink_formula
+        else:
+            print(f"File '{filename}' not found in the selected folder with the given extensions!")
+
+    workbook.save(excel_file)
+    print(f"Updated Excel saved at {excel_file}")
+
+if __name__ == "__main__":
+    main()

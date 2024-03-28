@@ -1,0 +1,201 @@
+import os
+import openpyxl
+import pandas as pd
+import tkinter as tk
+from tkinter import filedialog
+from openpyxl.styles import Font, Border, Side
+from openpyxl.styles import Font
+from tkinter import messagebox
+
+
+# Function to count variations between two BR numbers
+def count_variations(br1, br2):
+    variations = sum(1 for c1, c2 in zip(br1, br2) if c1 != c2)
+    variations += abs(len(br1) - len(br2))
+    return variations
+
+# Function to find similar BR numbers with no more than two variations
+def find_similar_br_numbers(target_br, source_brs):
+    for source_br in source_brs:
+        if count_variations(target_br, source_br) <= 2:
+            return source_br
+    return None
+
+
+# Convert relative paths to absolute paths
+def to_absolute_path(relative_path):
+    return os.path.abspath(relative_path) if not relative_path.startswith("file:///") else relative_path
+
+
+thin_border = Border(left=Side(style='thin'), 
+                     right=Side(style='thin'), 
+                     top=Side(style='thin'), 
+                     bottom=Side(style='thin'))
+
+def get_file_path(prompt):
+    root = tk.Tk()
+    root.withdraw()
+    file_path = filedialog.askopenfilename(title=prompt, filetypes=[('Excel Files', '*.xlsx')])
+    return file_path
+
+def lim(br):
+    if br is None:
+        return ''
+    # Remove leading apostrophe if present and then filter out non-alphanumeric characters
+    br = str(br).lstrip("'")
+    return ''.join(filter(str.isalnum, br)).upper()  # Convert to uppercase
+
+
+
+def extract_br_number(cell_value):
+    # Converts cell_value to string to handle both string and integer cell values
+    cell_value_str = str(cell_value)
+    # Extracts BR number from a cell value, handling HYPERLINK formula if necessary
+    if cell_value_str.startswith("=HYPERLINK"):
+        # Assumes BR number is the second argument in the HYPERLINK formula
+        br_number = cell_value_str.split(",")[1].strip(' "')
+    else:
+        br_number = cell_value_str
+    return lim(br_number)
+
+
+
+def format_korean_number(number, country):
+    number_str = str(number)
+    if country == "Korea, Republic Of" and len(number_str) == 10 and '-' not in number_str:
+        formatted_number = f'{number_str[:3]}-{number_str[3:5]}-{number_str[5:]}'
+    else:
+        formatted_number = number_str
+    return formatted_number
+
+def update_excel(sheet, br_numbers, name_map, address_map, docx_address_map, path_map=None):
+    updates_made = False
+    # Define a font style that looks like a hyperlink
+    hyperlink_font = Font(color="0563C1", underline="single")  
+    
+    for row in range(2, sheet.max_row + 1):
+        cell_value = sheet.cell(row=row, column=5).value
+        br_number = extract_br_number(cell_value)
+        if cell_value is not None and isinstance(cell_value, str) and cell_value.startswith("=HYPERLINK"):
+            br_number = lim(cell_value.split(",")[1].strip(' "'))
+        else:
+            br_number = lim(cell_value)
+        
+        country_cell_value = sheet.cell(row=row, column=4).value
+        formatted_br_number = format_korean_number(br_number, country_cell_value)
+        
+        if br_number not in br_numbers:
+            similar_br_number = find_similar_br_numbers(br_number, br_numbers)
+            if similar_br_number:
+                similar_br_number = similar_br_number.upper()
+                # Retrieve the company name from column C
+                company_name = sheet.cell(row=row, column=3).value
+                # Open the image file automatically
+                if path_map and similar_br_number in path_map:
+                    image_path = path_map[similar_br_number].lstrip("file:///")
+                    try:
+                        os.startfile(image_path)  # Attempt to open the file
+                    except Exception as e:
+                        print(f"Error opening file: {e}. Continuing to next BR number.")
+                        continue  # Skip the rest of the current iteration and proceed with the next loop iteration
+
+
+                # Prompt for confirmation
+                # Prompt for confirmation
+                root = tk.Tk()
+                root.withdraw()  # Hide the main window
+                message = (
+                    f"Current BR: {br_number}\n"
+                    f"Similar   BR: {similar_br_number}\n"
+                    f"Company Name: {company_name}\n"
+                    f"Replace?"
+                )
+                if messagebox.askyesno("Confirm Replacement", message):
+                    # If confirmed, write the similar BR number back to the Excel cell
+                    sheet.cell(row=row, column=5).value = similar_br_number
+
+        if br_number in br_numbers:
+            # Update column BA
+            name_value = name_map.get(br_number, None)
+            if name_value and name_value != "No Match Found":
+                sheet.cell(row=row, column=53).value = name_value
+
+            # Update column BB
+            address_value = address_map.get(br_number, None)
+            if address_value and address_value != "No Match Found":
+                sheet.cell(row=row, column=54).value = address_value
+
+            # Update column BC
+            docx_address_value = docx_address_map.get(br_number, None)
+            if docx_address_value and docx_address_value != "No Match Found":
+                sheet.cell(row=row, column=55).value = docx_address_value
+
+            # If path_map is provided, add hyperlinks
+            if path_map and br_number in path_map and path_map[br_number] != "No Match Found":
+                # Store file path as text in column BD without borders
+                file_path_cell = sheet.cell(row=row, column=56)
+                file_path_cell.value = path_map[br_number]
+                
+                # Update the hyperlink formula to use the formatted_br_number
+                hyperlink_formula_cell = sheet.cell(row=row, column=5)
+                hyperlink_formula = f'=HYPERLINK(BD{row}, "{formatted_br_number.upper()}")'
+                hyperlink_formula_cell.value = hyperlink_formula
+                
+                # Apply the hyperlink font style to the cell with the HYPERLINK formula
+                hyperlink_formula_cell.font = hyperlink_font  
+                
+                hyperlink_formula_cell.border = thin_border  # Add this line to set the border
+
+        print(f"Finished processing row {row}")  # Debugging print statement
+
+    # At the end of the function, return whether updates were made
+    return updates_made
+
+
+file_a_path = get_file_path("Select the 'work list' Excel file (A)")
+
+# Automatically determine the path for Excel B
+current_directory = os.getcwd()
+file_b_path = os.path.join(current_directory, "HK BR Data.xlsx")
+
+# Load Excel A
+print("Loading Excel A...")
+workbook_a = openpyxl.load_workbook(file_a_path)
+sheet_a = workbook_a.active
+
+# Load Excel B using pandas for easier data mapping
+print("Loading Excel B...")
+df_b = pd.read_excel(file_b_path, engine='openpyxl')
+name_map = df_b.set_index(df_b["BR Number"].apply(lim))["Company Name"].to_dict()
+address_map = df_b.set_index(df_b["BR Number"].apply(lim))["Company Address"].to_dict()
+docx_address_map = df_b.set_index(df_b["BR Number"].apply(lim))["Expiry Date"].to_dict()  # Updated line
+
+# Ensure paths are in a clickable format
+df_b["Original Source"] = df_b["Original Source"].apply(lambda x: "file:///" + to_absolute_path(x).replace('\\', '/') if not x.startswith("file:///") else x)
+path_map = df_b.set_index(df_b["BR Number"].apply(lim))["Original Source"].to_dict()
+
+
+
+# Print the contents of address_map and docx_address_map for debugging
+print("Address Map:", address_map)
+print("Docx Address Map:", docx_address_map)
+
+
+# Call the update_excel function for the first time
+print("Updating Excel A for the first time...")
+update_excel(sheet_a, name_map.keys(), name_map, address_map, docx_address_map, path_map)
+
+# Save after the first pass
+workbook_a.save(file_a_path)
+print(f"First update complete. File saved as {file_a_path}.")
+
+# Call the update_excel function for the second time
+print("Running the update process a second time...")
+update_excel(sheet_a, name_map.keys(), name_map, address_map, docx_address_map, path_map)
+
+# Save after the second pass
+workbook_a.save(file_a_path)
+print(f"Second update complete. File saved as {file_a_path}.")
+
+
+

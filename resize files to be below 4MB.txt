@@ -1,0 +1,90 @@
+import os
+import io
+from tkinter import Tk, filedialog
+from PIL import Image
+import shutil  # Add this import to the existing ones
+
+def compress_pdf(input_path, image_quality=85):
+    try:
+        pdf_document = fitz.open(input_path)
+        # Create a PDF writer for saving the output PDF
+        pdf_writer = fitz.open()
+        
+        for page_number in range(len(pdf_document)):
+            page = pdf_document.load_page(page_number)  # load the page
+            pix = page.get_pixmap()
+            img_data = io.BytesIO()
+            img = Image.open(io.BytesIO(pix.tobytes("ppm")))
+            img.save(img_data, "JPEG", quality=image_quality)
+            img_data.seek(0)
+            
+            # Start a new PDF with the compressed image
+            pdf_writer.new_page(width=pix.width, height=pix.height)
+            pdf_writer[page_number].insert_image(fitz.Rect(pix.irect), stream=img_data)
+
+        temp_pdf_path = input_path + ".temp"
+        pdf_writer.save(temp_pdf_path)
+        pdf_writer.close()
+        pdf_document.close()
+
+        # Replace the original file with the compressed one
+        shutil.move(temp_pdf_path, input_path)
+        print(f"PDF compressed and replaced: {input_path}")
+    except Exception as e:
+        print(f"Error compressing PDF {input_path}: {str(e)}")
+
+
+# Check for the version of Pillow and import accordingly
+try:
+    from PIL import ImageResampling
+    resample_filter = ImageResampling.LANCZOS
+except ImportError:
+    try:
+        resample_filter = Image.LANCZOS  # Pillow versions 5.2.0 and later
+    except AttributeError:
+        resample_filter = Image.ANTIALIAS  # Pillow versions before 5.2.0
+
+import fitz  # PyMuPDF is required for handling PDFs
+
+def resize_image(input_path, max_size):
+    try:
+        image = Image.open(input_path)
+        
+        if image.mode == "RGBA":
+            image = image.convert("RGB")
+        
+        image.thumbnail((max_size, max_size), resample_filter)
+        image.save(input_path, "JPEG", quality=85)
+        print(f"Image resized and replaced: {input_path}")
+    except Exception as e:
+        print(f"Error resizing image {input_path}: {str(e)}")
+
+
+
+def process_files_in_folder(folder_path, max_file_size, max_dimension):
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if os.path.getsize(file_path) > max_file_size:
+                print(f"Processing: {file_path}")
+
+                if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    resize_image(file_path, max_dimension)
+                elif file_path.lower().endswith('.pdf'):
+                    compress_pdf(file_path)
+
+    print("Optimization completed.")
+
+def main():
+    root = Tk()
+    root.withdraw()
+    selected_folder_path = filedialog.askdirectory(title="Select Folder")
+
+    max_file_size = 4 * 1024 * 1024  # 4MB
+    max_dimension = 2048  # Max width and height for images
+
+    if selected_folder_path:
+        process_files_in_folder(selected_folder_path, max_file_size, max_dimension)
+
+if __name__ == "__main__":
+    main()

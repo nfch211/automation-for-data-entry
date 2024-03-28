@@ -1,0 +1,70 @@
+import pandas as pd
+from tkinter import Tk, filedialog
+
+# Function to create a sanitized version of company names for matching
+def create_matching_name(column):
+    return column.str.replace(r'[（(]', '', regex=True)\
+                  .str.replace(r'[）)]', '', regex=True)\
+                  .str.strip()\
+                  .str.replace(r'\s+', ' ', regex=True)
+
+def select_file(prompt):
+    root = Tk()
+    root.withdraw()  # Hide the main window
+    root.attributes('-topmost', True)  # Bring the file dialog on top
+    file_path = filedialog.askopenfilename(title=prompt)
+    root.destroy()  # Close the root window
+    return file_path
+
+def load_excel(file_path, header_row_index):
+    try:
+        # Read the Excel file with the specified header row
+        df = pd.read_excel(file_path, header=header_row_index)
+        return df
+    except Exception as e:
+        print(f"An error occurred while reading the file: {file_path}")
+        print(str(e))
+        return None
+
+# Prompt user to select the two Excel files
+print("Please select the first Excel file.")
+file1_path = select_file("Select the first Excel file")
+print("Please select the second Excel file.")
+file2_path = select_file("Select the second Excel file")
+
+# Manually set the header row index based on the script's previous output
+df1 = load_excel(file1_path, 1)  # Assuming the second row is the header for the first file
+df2 = load_excel(file2_path, 0)  # Assuming the first row is the header for the second file
+
+# Check if the relevant columns exist in both dataframes
+if df1 is not None and df2 is not None:
+    # Create sanitized matching name columns for both dataframes
+    df1['Matching Name'] = create_matching_name(df1['企业名称'])
+    df2['Matching Name'] = create_matching_name(df2['Company Name'])
+
+    if '企业名称' in df1.columns and 'Company Name' in df2.columns \
+       and '地址' in df1.columns and 'Company Address' in df2.columns \
+       and '统一社会信用代码' in df1.columns and 'BR Number' in df2.columns:
+        # Create a dictionary from df1 with sanitized company names as keys and a tuple of addresses and credit codes as values
+        company_info_dict = pd.Series(df1[['地址', '统一社会信用代码']].values.tolist(),
+                                      index=df1['Matching Name']).to_dict()
+
+        # For each company name in df2, update the address and BR Number if there's a matching sanitized company name in df1
+        for index, row in df2.iterrows():
+            matching_name = row['Matching Name']
+            if matching_name in company_info_dict:
+                # Update the 'Company Address' and 'BR Number' in df2
+                address, credit_code = company_info_dict[matching_name]
+                df2.at[index, 'Company Address'] = address
+                df2.at[index, 'BR Number'] = credit_code
+
+        # Save the updated dataframe to a new Excel file
+        output_file_path = 'updated_company_list.xlsx'
+        # Drop the 'Matching Name' column before saving as it's no longer needed
+        df2.drop('Matching Name', axis=1, inplace=True)
+        df2.to_excel(output_file_path, index=False)
+        print(f"Updated Excel file saved to {output_file_path}")
+    else:
+        print("The expected columns were not found in one of the files.")
+else:
+    print("Failed to load one or both files.")

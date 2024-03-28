@@ -1,0 +1,83 @@
+import pandas as pd
+from tkinter import Tk, filedialog
+from openpyxl import load_workbook
+
+# Function to create a sanitized version of company names for matching
+def create_matching_name(column):
+    return column.str.replace(r'[（(]', '', regex=True)\
+                  .str.replace(r'[）)]', '', regex=True)\
+                  .str.strip()\
+                  .str.replace(r'\s+', ' ', regex=True)
+
+def select_file(prompt):
+    root = Tk()
+    root.withdraw()  # Hide the main window
+    root.attributes('-topmost', True)  # Bring the file dialog on top
+    file_path = filedialog.askopenfilename(title=prompt)
+    root.destroy()  # Close the root window
+    return file_path
+
+def load_excel(file_path, header_row_index):
+    try:
+        df = pd.read_excel(file_path, header=header_row_index)
+        return df
+    except Exception as e:
+        print(f"An error occurred while reading the file: {file_path}")
+        print(str(e))
+        return None
+
+print("Please select the first Excel file.")
+file1_path = select_file("Select the first Excel file")
+print("Please select the second Excel file.")
+file2_path = select_file("Select the second Excel file")
+
+df1 = load_excel(file1_path, 1)  # Second row as the header
+df2 = load_excel(file2_path, 0)  # First row as the header
+
+# Define the columns which contain the file paths
+# Replace these with the actual column headers from your df2 DataFrame
+path_columns = ['Original Source', 'Text Conversion', 'Text Translation in Eng']
+
+if df1 is not None and df2 is not None:
+    df1['Matching Name'] = create_matching_name(df1['企业名称'])
+    df2['Matching Name'] = create_matching_name(df2['Company Name'])
+
+    if '企业名称' in df1.columns and 'Company Name' in df2.columns \
+       and '地址' in df1.columns and 'Company Address' in df2.columns \
+       and '统一社会信用代码' in df1.columns and 'BR Number' in df2.columns:
+
+        company_info_dict = pd.Series(df1[['地址', '统一社会信用代码']].values.tolist(),
+                                      index=df1['Matching Name']).to_dict()
+
+        for index, row in df2.iterrows():
+            matching_name = row['Matching Name']
+            if matching_name in company_info_dict:
+                address, credit_code = company_info_dict[matching_name]
+                df2.at[index, 'Company Address'] = address
+                df2.at[index, 'BR Number'] = credit_code
+
+        # Save the updated dataframe to a new Excel file
+        output_file_path = 'updated_company_list.xlsx'
+        df2.drop('Matching Name', axis=1, inplace=True)
+        df2.to_excel(output_file_path, index=False)
+
+        # Open the saved Excel file and add hyperlinks using openpyxl
+        wb = load_workbook(output_file_path)
+        ws = wb.active
+
+        # Add hyperlinks to the specified columns
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for col_name in path_columns:
+                col_idx = df2.columns.get_loc(col_name) + 1  # get_loc is 0-indexed, Excel is 1-indexed
+                cell = row[col_idx - 1]  # Adjust for 0-indexing in Python
+                if cell.value is not None:
+                    cell.hyperlink = cell.value
+                    cell.style = 'Hyperlink'
+
+        wb.save(output_file_path)
+        print(f"Updated Excel file with hyperlinks saved to {output_file_path}")
+
+    else:
+        print("The expected columns were not found in one of the files.")
+else:
+    print("Failed to load one or both files.")

@@ -1,0 +1,87 @@
+import glob
+import os
+import re
+import shutil
+from docx import Document
+from tkinter import filedialog, Tk
+from tkinter.ttk import Frame, Label, Entry, Button
+import pandas as pd
+
+def ask_directory(entry):
+    folder_path = filedialog.askdirectory()
+    entry.delete(0, 'end')
+    entry.insert(0, folder_path)
+
+def process_folder():
+    input_folder_path = input_folder_entry.get()
+    output_folder_path = output_folder_entry.get()
+    pdf_input_folder_path = pdf_input_folder_entry.get()
+    pdf_output_folder_path = pdf_output_folder_entry.get()
+    results = []
+
+    file_paths = glob.glob(os.path.join(input_folder_path, '**/*.docx'), recursive=True)
+
+    processed_files = []
+    skipped_files = []
+
+    code_pattern = re.compile(r'\b(91[A-Z0-9]{14,16}|4[A-Z0-9]{14,16})\b')
+
+    for file_path in file_paths:
+        if file_path.endswith('~$'):
+            skipped_files.append(file_path)
+            continue  # Skip temporary files
+
+        try:
+            document = Document(file_path)
+            extracted_codes = []
+
+            for para in document.paragraphs:
+                matches = re.findall(code_pattern, para.text)
+                extracted_codes.extend(matches)
+
+            if extracted_codes:
+                for code in extracted_codes:
+                    file_name = os.path.basename(file_path)
+                    results.append([file_name, code, "Success"])
+            else:
+                file_name = os.path.basename(file_path)
+                results.append([file_name, "", "No Code Found"])
+                corresponding_pdf = os.path.join(pdf_input_folder_path, file_name.replace('.docx', '.pdf'))
+
+                if os.path.isfile(corresponding_pdf):
+                    shutil.move(corresponding_pdf, pdf_output_folder_path)
+
+            processed_files.append(file_path)
+        except Exception as e:
+            skipped_files.append(file_path)
+            print(f"Error processing file: {file_path} - {str(e)}")
+
+    df = pd.DataFrame(results, columns=['File Name', 'Extracted Code', 'Status'])
+    output_file_path = os.path.join(output_folder_path, 'results.xlsx')
+    df.to_excel(output_file_path, index=False)
+
+    print("Processed Files:")
+    for file_path in processed_files:
+        print(file_path)
+
+    print("\nSkipped Files:")
+    for file_path in skipped_files:
+        print(file_path)
+
+root = Tk()
+root.title('Unified Social Credit Code Extractor')
+
+frame = Frame(root)
+frame.pack(padx=10, pady=10)
+
+folders = [('Input Folder:', 'input_folder_entry'), ('Output Folder:', 'output_folder_entry'), ('PDF Input Folder:', 'pdf_input_folder_entry'), ('PDF Output Folder:', 'pdf_output_folder_entry')]
+
+for idx, (text, var_name) in enumerate(folders):
+    Label(frame, text=text).grid(row=idx, column=0, sticky='w')
+    globals()[var_name] = Entry(frame, width=50)
+    globals()[var_name].grid(row=idx, column=1)
+    Button(frame, text='Browse...', command=lambda e=globals()[var_name]: ask_directory(e)).grid(row=idx, column=2)
+
+Button(frame, text='Extract Codes', command=process_folder).grid(row=len(folders), column=1, pady=10)
+
+root.mainloop()

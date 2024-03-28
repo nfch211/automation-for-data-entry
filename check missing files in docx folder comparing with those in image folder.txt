@@ -1,0 +1,89 @@
+import os
+import shutil
+import tkinter as tk
+from tkinter import filedialog
+import openpyxl
+
+def get_file_name_without_ext(file_name):
+    """Get the filename without its extension."""
+    return os.path.splitext(file_name)[0]
+
+def compare_folders_and_generate_excel(image_folder, docx_folder):
+    """Compare the two folders, generate an Excel file with missing DOCX files, and copy missing files to a new folder."""
+    # Get all the filenames without considering extensions
+    image_files = {
+        os.path.join(root, file)
+        for root, dirs, files in os.walk(image_folder)
+        for file in files
+    }
+    
+    # Create a new Excel workbook and add the filenames with paths
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["File Name", "Image File Path", "DOCX File Path"])
+    
+    # Create a folder for missing files
+    missing_files_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), "MissingFiles")
+    if not os.path.exists(missing_files_folder):
+        os.makedirs(missing_files_folder)
+    
+    for image_path in image_files:
+        base_name = get_file_name_without_ext(os.path.basename(image_path))
+        docx_path = os.path.join(docx_folder, base_name + ".docx")
+        
+        if os.path.exists(docx_path):
+            ws.append([base_name, image_path, docx_path])
+        else:
+            ws.append([base_name, image_path, "DOCX File Missing"])
+            # Copy the missing file to the MissingFiles folder
+            shutil.copy2(image_path, missing_files_folder)
+    
+    # Save the Excel file
+    excel_file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "missing_files_in_docx_folder.xlsx")
+    wb.save(excel_file_path)
+
+    print(f"Excel file saved to: {excel_file_path}")
+
+def select_image_folder():
+    """Select the image folder."""
+    global image_folder_path
+    image_folder_path = filedialog.askdirectory(title="Select Image Folder")
+    entry_image_folder.delete(0, tk.END)
+    entry_image_folder.insert(tk.END, image_folder_path)
+
+def select_docx_folder():
+    """Select the DOCX folder."""
+    global docx_folder_path
+    docx_folder_path = filedialog.askdirectory(title="Select DOCX Folder")
+    entry_docx_folder.delete(0, tk.END)
+    entry_docx_folder.insert(tk.END, docx_folder_path)
+
+def on_compare_click():
+    """Handle the Compare button click."""
+    compare_folders_and_generate_excel(image_folder_path, docx_folder_path)
+
+# Create the tkinter window
+window = tk.Tk()
+window.title("Compare Folders")
+
+# Image folder selection
+label_image_folder = tk.Label(window, text="Image Folder:")
+label_image_folder.pack()
+entry_image_folder = tk.Entry(window, width=50)
+entry_image_folder.pack()
+button_select_image_folder = tk.Button(window, text="Select", command=select_image_folder)
+button_select_image_folder.pack()
+
+# DOCX folder selection
+label_docx_folder = tk.Label(window, text="DOCX Folder:")
+label_docx_folder.pack()
+entry_docx_folder = tk.Entry(window, width=50)
+entry_docx_folder.pack()
+button_select_docx_folder = tk.Button(window, text="Select", command=select_docx_folder)
+button_select_docx_folder.pack()
+
+# Compare button
+button_compare = tk.Button(window, text="Compare", command=on_compare_click)
+button_compare.pack()
+
+window.mainloop()

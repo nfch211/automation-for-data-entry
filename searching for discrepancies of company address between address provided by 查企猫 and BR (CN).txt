@@ -1,0 +1,90 @@
+import os
+import openpyxl
+import re
+from docx import Document
+from tkinter import Tk, filedialog
+from openpyxl.styles import Font
+
+# Function to preprocess text
+def preprocess_text(text):
+    return re.sub(r'[^a-zA-Z0-9\s]', '', text).replace(' ', '').lower()
+
+# Function to search for text in docx and change font color
+def process_excel(file_path):
+    # Load Excel workbook
+    workbook = openpyxl.load_workbook(file_path)
+    sheet = workbook.active
+    
+    # Find the header row
+    header_row = 1  # Assuming the header is in the first row
+    
+    # Find the columns for Company Name, Company Address, and Path to docx
+    company_name_col = 2  # Column B
+    company_address_col = 3  # Column C
+    path_to_docx_col = 7  # Column G
+    
+    # Set up font styles
+    blue_font = Font(color="0000FF")
+    red_font = Font(color="FF0000")
+    
+    # Iterate through each row
+    for row in sheet.iter_rows(min_row=header_row + 1):
+        company_name = row[company_name_col - 1].value
+        company_address = row[company_address_col - 1].value
+        docx_path = row[path_to_docx_col - 1].value
+        
+        if docx_path:
+            docx_path = docx_path.strip()
+            
+            if os.path.exists(docx_path):
+                doc = Document(docx_path)
+                
+                # Combine all text into a single line
+                doc_text = " ".join([para.text for para in doc.paragraphs])
+                
+                # Preprocess text for comparison
+                company_name_preprocessed = preprocess_text(company_name)
+                company_address_preprocessed = preprocess_text(company_address)
+                doc_text_preprocessed = preprocess_text(doc_text)
+                
+                # Search for text and change font color
+                company_name_found = False
+                company_address_found = False
+                
+                if company_name_preprocessed in doc_text_preprocessed:
+                    company_name_found = True
+                    print("Company Name Match found:")
+                    print("Company Name:", company_name)
+                    print("-" * 40)
+                
+                if company_address_preprocessed in doc_text_preprocessed:
+                    company_address_found = True
+                    print("Company Address Match found:")
+                    print("Company Address:", company_address)
+                    print("-" * 40)
+                
+                # Update Excel cell font color
+                if company_name_found:
+                    sheet.cell(row=row[0].row, column=company_name_col).font = blue_font
+                else:
+                    sheet.cell(row=row[0].row, column=company_name_col).font = red_font
+                
+                if company_address_found:
+                    sheet.cell(row=row[0].row, column=company_address_col).font = blue_font
+                else:
+                    sheet.cell(row=row[0].row, column=company_address_col).font = red_font
+    
+    # Save the updated workbook
+    updated_file_path = os.path.splitext(file_path)[0] + "_updated.xlsx"
+    workbook.save(updated_file_path)
+    print("Processing complete. Updated file saved as:", updated_file_path)
+
+# Prompt user to select Excel file
+root = Tk()
+root.withdraw()
+excel_file_path = filedialog.askopenfilename(title="Select Excel file", filetypes=[("Excel Files", "*.xlsx")])
+
+if excel_file_path:
+    process_excel(excel_file_path)
+else:
+    print("No Excel file selected.")

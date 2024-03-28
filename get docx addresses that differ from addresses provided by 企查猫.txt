@@ -1,0 +1,142 @@
+import os
+import openpyxl
+import re
+from docx import Document
+from tkinter import Tk, filedialog
+from openpyxl.styles import Font
+import datetime
+
+# Function to preprocess text
+def preprocess_text(text):
+    return re.sub(r'[^a-zA-Z0-9\s]', '', text).replace(' ', '').lower()
+
+def join_split_text(doc_text_preprocessed, words):
+    idx = 0
+    extracted_words = []
+    for word in words:
+        new_idx = doc_text_preprocessed.find(word, idx)
+        if new_idx == -1:
+            break
+        extracted_words.append(doc_text_preprocessed[idx:new_idx+len(word)])
+        idx = new_idx + len(word)
+    return ''.join(extracted_words).strip()
+
+def is_present_in_docx(company_address_preprocessed, doc_text_preprocessed):
+    words = company_address_preprocessed.split()
+    combined_text = join_split_text(doc_text_preprocessed, words)
+    return company_address_preprocessed in combined_text
+
+def extend_address_from_docx(doc_text, partial_address, complete_address):
+    try:
+        start_index = doc_text.index(partial_address)
+        end_index = start_index + len(partial_address)
+        
+        lines = doc_text.split('\n')
+        current_line_index = 0
+        for idx, line in enumerate(lines):
+            if partial_address in line:
+                current_line_index = idx
+                break
+
+        while True:
+            next_word_match = re.search(r'(\S+)', doc_text[end_index:])
+            if not next_word_match:
+                current_line_index += 1
+                if current_line_index < len(lines):
+                    doc_text = lines[current_line_index]
+                    end_index = 0
+                    continue
+                else:
+                    break
+
+            next_word = next_word_match.group(1)
+            if complete_address.startswith(partial_address + next_word):
+                partial_address += next_word
+                end_index += len(next_word)
+            else:
+                break
+
+    except ValueError:
+        pass
+    
+    return partial_address
+
+def find_address_with_criteria(doc, min_matches):
+    characters_to_match = ['省', '市', '镇', '路', '号', '楼', '室', '区']
+    
+    for para in doc.paragraphs:
+        count = sum([para.text.count(char) for char in characters_to_match])
+        if count >= min_matches:
+            text = para.text.strip()
+            if text.startswith("所 "):
+                text = text[2:]
+            return text
+    return None
+
+def find_line_in_docx(doc):
+    result = find_address_with_criteria(doc, 3)
+    
+    if not result:
+        result = find_address_with_criteria(doc, 2)
+    
+    return result
+
+def process_excel(file_path):
+    workbook = openpyxl.load_workbook(file_path)
+    sheet = workbook.active
+    
+    company_name_col = 2
+    company_address_col = 3
+    docx_address_col = company_address_col + 1
+    path_to_docx_col = 8
+    
+    blue_font = Font(color="0000FF")
+    red_font = Font(color="FF0000")
+    
+    sheet.insert_cols(docx_address_col)
+    sheet.cell(row=1, column=docx_address_col).value = "Docx Address"
+    
+    for row in sheet.iter_rows(min_row=2):
+        company_name = row[company_name_col - 1].value
+        company_address = row[company_address_col - 1].value
+
+        if isinstance(company_name, datetime.datetime) or isinstance(company_address, datetime.datetime):
+            continue
+        
+        docx_path = row[path_to_docx_col - 1].value
+        
+        if docx_path and os.path.exists(docx_path.strip()):
+            doc = Document(docx_path.strip())
+            doc_text = " ".join([para.text for para in doc.paragraphs])
+            
+            company_name_preprocessed = preprocess_text(company_name)
+            company_address_preprocessed = preprocess_text(company_address)
+            doc_text_preprocessed = preprocess_text(doc_text)
+            
+            company_name_found = company_name_preprocessed in doc_text_preprocessed
+            company_address_found = is_present_in_docx(company_address_preprocessed, doc_text_preprocessed)
+                
+            sheet.cell(row=row[0].row, column=company_name_col).font = blue_font if company_name_found else red_font
+            sheet.cell(row=row[0].row, column=company_address_col).font = blue_font if company_address_found else red_font
+                    
+            if not company_address_found:
+                line = find_line_in_docx(doc)
+                if line:
+                    extended_line = extend_address_from_docx(doc_text, line, company_address)
+                    sheet.cell(row=row[0].row, column=docx_address_col).value = extended_line         
+                else:
+                    print(f"Address not found in docx for: {company_address}")
+    
+    updated_file_path = os.path.splitext(file_path)[0] + "_updated.xlsx"
+    workbook.save(updated_file_path)
+    print("Processing complete.")
+
+
+root = Tk()
+root.withdraw()
+excel_file_path = filedialog.askopenfilename(title="Select Excel file", filetypes=[("Excel Files", "*.xlsx")])
+
+if excel_file_path:
+    process_excel(excel_file_path)
+else:
+    print("No Excel file selected.")

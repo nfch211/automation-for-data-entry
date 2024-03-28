@@ -1,0 +1,102 @@
+import pandas as pd
+import tkinter as tk
+from tkinter import filedialog
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Font
+
+def break_down_address(address):
+    province, city, county, admin_div, town, road = None, None, None, None, None, None
+
+    province_index = address.find('省')
+    if province_index != -1:
+        province = address[:province_index + 1]
+        address = address[province_index + 1:]
+
+    city_index = address.rfind('市')
+    if city_index != -1:
+        city = address[:city_index + 1]
+        address = address[city_index + 1:]
+
+    county_index = address.find('县')
+    if county_index != -1:
+        county = address[:county_index + 1]
+        address = address[county_index + 1:]
+
+    admin_div_index = address.find('区')
+    if admin_div_index != -1:
+        admin_div = address[:admin_div_index + 1]
+        address = address[admin_div_index + 1:]
+
+    town_index = address.find('镇')
+    if town_index != -1:
+        town = address[:town_index + 1]
+        address = address[town_index + 1:]
+
+    road_index = address.find('路')
+    if road_index != -1:
+        road = address[:road_index + 1]
+
+    return province, city, county, admin_div, town, road
+
+def standardize_and_sort_addresses():
+    root = tk.Tk()
+    root.withdraw()
+
+    file_path = filedialog.askopenfilename(filetypes=[('Excel Files', '*.xlsx'), ('All Files', '*.*')])
+    if not file_path:
+        return
+    folder_path = filedialog.askdirectory()
+    if not folder_path:
+        return
+
+    df = pd.read_excel(file_path)
+
+    print('Breaking down address components from Company Address...')
+    df['Province'], df['City'], df['County'], df['Administrative Division'], df['Town'], df['Road'] = zip(*df['Company Address'].map(break_down_address))
+
+    print('Sanitizing addresses...')
+    df['Company Address'] = df['Company Address'].apply(lambda x: x.strip())
+
+    print('Sorting addresses...')
+    df.sort_values(by=['Province', 'City', 'County', 'Administrative Division', 'Town', 'Road', 'Company Address'], ascending=[True, True, True, True, True, True, True], inplace=True)
+
+    print('Writing to Excel file...')
+    wb = Workbook()
+    ws = wb.active
+
+    for i, column_name in enumerate(df.columns, start=1):
+        ws.cell(row=1, column=i, value=column_name)
+
+    green_fill = PatternFill(start_color='C6E0B4', end_color='C6E0B4', fill_type='solid')
+    yellow_fill = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid')
+    red_font = Font(color="FF0000")
+
+    fill = green_fill
+    last_vals = None
+    last_road = None
+    road_font = None
+    for row_num, row in enumerate(df.values, start=2):
+        current_vals = list(row[4:9])
+        current_road = row[-1] # Assuming 'Road' is the last column
+        if last_vals is None or list(last_vals) != current_vals:
+            fill = green_fill if fill == yellow_fill else yellow_fill
+            road_font = None
+            last_road = None
+        else:
+            if current_road and last_road == current_road:
+                road_font = red_font
+
+        last_vals = current_vals
+        last_road = current_road
+
+        for col_num, cell_value in enumerate(row, start=1):
+            cell = ws.cell(row=row_num, column=col_num, value=cell_value)
+            cell.fill = fill
+            if road_font: # If road_font is set to red, apply to the entire row
+                cell.font = road_font
+
+    wb.save(f"{folder_path}/standardized_addresses.xlsx")
+
+    print('Done! Check the output file at:', f"{folder_path}/standardized_addresses.xlsx")
+
+standardize_and_sort_addresses()

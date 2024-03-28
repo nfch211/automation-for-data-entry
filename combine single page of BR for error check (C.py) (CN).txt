@@ -1,0 +1,188 @@
+import openpyxl
+import PyPDF2
+import img2pdf
+import tkinter as tk
+from tkinter import filedialog
+import io
+import os
+from PIL import Image
+
+def combine_files_into_pdf(file_list, output_folder, output_filename):
+    pdf_writer = PyPDF2.PdfWriter()
+
+    for file_path in file_list:
+        if file_path.endswith('.pdf'):
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                for page_num in range(len(pdf_reader.pages)):
+                    pdf_writer.add_page(pdf_reader.pages[page_num])
+        else:  # for PNG and JPG
+            try:
+                img = Image.open(file_path)
+                img_width, img_height = img.size
+                if img_width < 3 or img_height < 3:
+                    error_info = {
+                        'file_name': os.path.basename(file_path),
+                        'file_path': file_path,
+                        'error_reason': 'Image dimensions too small for conversion'
+                    }
+                    error_log.append(error_info)
+                    continue
+
+                pdf_bytes = img2pdf.convert(open(file_path, 'rb'))
+                buffer = io.BytesIO(pdf_bytes)  # Convert bytes to file-like byte stream
+                pdf_reader = PyPDF2.PdfReader(buffer)
+                for page_num in range(len(pdf_reader.pages)):
+                    pdf_writer.add_page(pdf_reader.pages[page_num])
+            except Exception as e:
+                error_info = {
+                    'file_name': os.path.basename(file_path),
+                    'file_path': file_path,
+                    'error_reason': str(e)
+                }
+                error_log.append(error_info)
+                continue
+
+    combined_pdf_path = os.path.join(output_folder, output_filename)
+    with open(combined_pdf_path, 'wb') as out:
+        pdf_writer.write(out)
+
+    return combined_pdf_path
+
+def process_excel_file(excel_file, output_folder, error_log):
+    wb = openpyxl.load_workbook(excel_file)
+    
+    # Target the "Sheet" specifically
+    original_ws = wb["Sheet"]
+
+    red_files = []
+    normal_files = []
+    br_page_column_index = None
+
+    for row_num, row in enumerate(original_ws.iter_rows()):
+        if row_num == 0:  # First row contains headers
+            for col_num, cell in enumerate(row):
+                if cell.value == "BR Page":
+                    br_page_column_index = col_num
+                    break
+            continue
+
+        # Check if the row has at least the identified column index
+        if br_page_column_index is None or len(row) <= br_page_column_index:
+            continue
+
+        br_page_path = row[br_page_column_index].hyperlink.target if row[br_page_column_index].hyperlink else None
+        
+        print(f"Row {row_num + 1}: Extracted BR Page path: {br_page_path}")
+
+        if not br_page_path:
+            print(f"Row {row_num + 1}: No BR Page hyperlink found")
+            continue
+
+        if "Match Found" in row[0].value:
+            normal_files.append(br_page_path)
+        else:
+            red_files.append(br_page_path)
+
+    # Rest of the function remains unchanged...
+    combined_red_pdf_path = combine_files_into_pdf(red_files, output_folder, 'combined_normal.pdf')
+    combined_normal_pdf_path = combine_files_into_pdf(normal_files, output_folder, 'combined_red.pdf')	
+
+    # Add combined PDF paths to the new "BR Check" sheet in the original workbook
+    if "BR Check" in wb.sheetnames:
+        ws = wb["BR Check"]
+    else:
+        ws = wb.create_sheet("BR Check")
+
+    # Insert the descriptions
+    ws.cell(row=1, column=1, value="Combined RED PDFs")
+    ws.cell(row=3, column=1, value="Combined Normal PDFs")
+    
+    # Insert the hyperlinks
+    link_cell = ws.cell(row=2, column=1)
+    link_cell.value = combined_red_pdf_path
+    link_cell.hyperlink = combined_red_pdf_path
+    
+    link_cell = ws.cell(row=4, column=1)
+    link_cell.value = combined_normal_pdf_path
+    link_cell.hyperlink = combined_normal_pdf_path
+    
+    # Insert the descriptions
+    ws.cell(row=1, column=1, value="Combined RED PDFs")
+    ws.cell(row=3, column=1, value="Combined Normal PDFs")
+    
+    # Insert the hyperlinks
+    link_cell = ws.cell(row=2, column=1)
+    link_cell.value = combined_red_pdf_path
+    link_cell.hyperlink = combined_red_pdf_path
+    
+    link_cell = ws.cell(row=4, column=1)
+    link_cell.value = combined_normal_pdf_path
+    link_cell.hyperlink = combined_normal_pdf_path
+    
+    # Create new sheets for recording page information
+    combined_br_normal_ws = wb.create_sheet("Combined BR_normal")
+    combined_br_errors_ws = wb.create_sheet("Combined BR_errors")
+
+    # Add headers to the new sheets
+    combined_br_normal_ws.append(["Page Number", "File Name", "File Path"])
+    combined_br_errors_ws.append(["Page Number", "File Name", "File Path"])
+
+    # Add page information to the new sheets
+    for page_num, file_path in enumerate(red_files, start=1):
+        combined_br_normal_ws.append([page_num, os.path.basename(file_path), file_path])
+
+    for page_num, file_path in enumerate(normal_files, start=1):
+        combined_br_errors_ws.append([page_num, os.path.basename(file_path), file_path])
+
+    # Set hyperlinks for file paths in the new sheets
+    for ws in [combined_br_normal_ws, combined_br_errors_ws]:
+        for row_num in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row_num, column=3)  # Column 3 corresponds to "File Path"
+            file_path = cell.value  # Get the full file path
+            cell.hyperlink = file_path  # Set the hyperlink to the full file path
+
+    # Save the changes back to the original Excel file
+    wb.save(excel_file)
+
+    print(f"\nProcessed Excel file saved: {excel_file}")
+
+    return error_log
+
+def log_errors_to_excel(error_log, excel_file):
+    wb = openpyxl.load_workbook(excel_file)
+    if "Error Log" in wb.sheetnames:
+        ws = wb["Error Log"]
+    else:
+        ws = wb.create_sheet("Error Log")
+        ws.append(["File Name", "File Path", "Error Reason"])
+
+    for error_info in error_log:
+        ws.append([error_info['file_name'], error_info['file_path'], error_info['error_reason']])
+
+    # Add hyperlinks to the "File Path" column
+    for row_num, error_info in enumerate(error_log, start=2):
+        cell = ws.cell(row=row_num, column=2)  # Column 2 corresponds to "File Path"
+        cell.hyperlink = error_info['file_path']
+        cell.value = error_info['file_path']  # Set the cell value to the file path
+
+    wb.save(excel_file)
+
+def select_file_and_folder():
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+
+    excel_file_path = filedialog.askopenfilename(title="Select Excel file", filetypes=[("Excel files", "*.xlsx")])
+    output_folder = filedialog.askdirectory(title="Select folder to save BR pdf files")
+
+    root.destroy()
+
+    return excel_file_path, output_folder
+
+if __name__ == "__main__":
+    excel_file_path, output_folder = select_file_and_folder()
+    error_log = []  # Initialize an empty error log
+
+    if excel_file_path and output_folder:
+        error_log = process_excel_file(excel_file_path, output_folder, error_log)
+        log_errors_to_excel(error_log, excel_file_path)
