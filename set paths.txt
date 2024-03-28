@@ -1,6 +1,0 @@
-# Set the path to Tesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Users\hofong\Desktop\python\Tesseract\tesseract.exe"
-
-# Set the path to the Poppler binary directory
-poppler_path = r"C:\Users\hofong\Desktop\python\poppler-23.07.0\Library\bin"
-os.environ["PATH"] += os.pathsep + poppler_path
